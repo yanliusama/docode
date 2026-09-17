@@ -195,3 +195,99 @@ describe('extractTiebaTopic', () => {
     expect(document.querySelector(`[${TIEBA_STAGING_ATTRIBUTE}]`)).toBeNull();
   });
 });
+
+describe('extractTiebaTopic media mirroring', () => {
+  it('splits images out of the paragraph flow and resolves lazy sources', () => {
+    document.body.innerHTML = `
+      <div class="pc-pb-box">
+        <div class="head-line user-info"><span class="head-name">合成楼主</span></div>
+        <div class="pb-title-wrap pc-pb-title"><span class="pb-title">带图帖子</span></div>
+        <div class="pb-content-wrap">
+          <div class="richtext-item"><span class="pb-text-wrapper">图片前的正文</span></div>
+          <div class="richtext-item">
+            <div class="image-card-wrapper" origin-src="https://tiebapic.baidu.com/forum/original/big.jpg">
+              <div class="lazy-img-wrapper">
+                <img
+                  src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                  data-src="https://tiebapic.baidu.com/forum/pic/item/photo.jpg?tbpicau=1"
+                >
+              </div>
+            </div>
+          </div>
+          <div class="richtext-item"><span class="pb-text-wrapper">图片后的正文</span></div>
+        </div>
+        <div class="pc-pb-reply-top"><div class="card-tab"><span class="tab-item">全部回复 (0)</span></div></div>
+        <div class="thread-container"></div>
+      </div>
+    `;
+
+    const result = extractTiebaTopic(document, threadRoute());
+
+    expect(result.state).toBe('ready');
+    if (result.state !== 'ready') return;
+    const content = result.posts[0]?.content;
+    expect(content?.blocks.map(({ kind }) => kind)).toEqual(['paragraph', 'media', 'paragraph']);
+    const figure = content?.blocks[1]?.element;
+    expect(figure?.tagName).toBe('FIGURE');
+    expect(figure?.querySelector('img')?.getAttribute('src')).toBe(
+      'https://tiebapic.baidu.com/forum/pic/item/photo.jpg?tbpicau=1',
+    );
+    expect(content?.blocks[0]?.element.textContent).toContain('图片前的正文');
+    expect(content?.blocks[2]?.element.textContent).toContain('图片后的正文');
+  });
+
+  it('falls back to the wrapper origin source when the image has no usable src', () => {
+    document.body.innerHTML = `
+      <div class="pc-pb-box">
+        <div class="head-line user-info"><span class="head-name">合成楼主</span></div>
+        <div class="pb-title-wrap pc-pb-title"><span class="pb-title">仅原始地址</span></div>
+        <div class="pb-content-wrap">
+          <div class="image-card-wrapper" origin-src="https://tiebapic.baidu.com/forum/original/only.jpg">
+            <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+          </div>
+        </div>
+        <div class="pc-pb-reply-top"><div class="card-tab"><span class="tab-item">全部回复 (0)</span></div></div>
+        <div class="thread-container"></div>
+      </div>
+    `;
+
+    const result = extractTiebaTopic(document, threadRoute());
+
+    if (result.state !== 'ready') throw new Error('Expected a ready extraction.');
+    const figure = result.posts[0]?.content?.blocks[0]?.element;
+    expect(figure?.tagName).toBe('FIGURE');
+    expect(figure?.querySelector('img')?.getAttribute('src')).toBe(
+      'https://tiebapic.baidu.com/forum/original/only.jpg',
+    );
+  });
+
+  it('keeps inline emoji images inside their paragraph', () => {
+    document.body.innerHTML = `
+      <div class="pc-pb-box">
+        <div class="head-line user-info"><span class="head-name">合成楼主</span></div>
+        <div class="pb-title-wrap pc-pb-title"><span class="pb-title">带表情帖子</span></div>
+        <div class="pb-content-wrap">
+          <div class="pb-content-item">
+            表情在这里
+            <span class="pb-emot emoji-img-wrap">
+              <img src="https://tb3.bdstatic.com/emoji/image_emoticon24@2x.png">
+            </span>
+          </div>
+        </div>
+        <div class="pc-pb-reply-top"><div class="card-tab"><span class="tab-item">全部回复 (0)</span></div></div>
+        <div class="thread-container"></div>
+      </div>
+    `;
+
+    const result = extractTiebaTopic(document, threadRoute());
+
+    if (result.state !== 'ready') throw new Error('Expected a ready extraction.');
+    const content = result.posts[0]?.content;
+    expect(content?.blocks.map(({ kind }) => kind)).toEqual(['paragraph']);
+    const paragraph = content?.blocks[0]?.element;
+    expect(paragraph?.tagName).toBe('P');
+    expect(paragraph?.querySelector('img')?.getAttribute('src')).toBe(
+      'https://tb3.bdstatic.com/emoji/image_emoticon24@2x.png',
+    );
+  });
+});

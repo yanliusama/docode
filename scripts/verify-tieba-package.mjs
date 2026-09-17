@@ -10,17 +10,60 @@ const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'docode-tieba-verificati
 const browserChannel = process.env.DOCODE_BROWSER_CHANNEL ?? 'chromium';
 
 const TIEBA_HOME_FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><title>百度贴吧</title></head><body>
-  <div id="app">
-    <div class="feed-card">
-      <a class="thread-title" href="/p/1000000001">合成帖子一</a>
-      <a class="author" href="/home/main?un=alice">alice</a>
-      <span class="reply">128回复</span>
-      <span class="time">3小时前</span>
+  <div class="pc-main-page-layout">
+    <div class="container styled-scrollbar deep" id="feed" style="height: 420px; overflow-y: auto;">
+      <div id="feed-items">
+        <div class="feed-card">
+          <a class="thread-title" href="/p/1000000001">合成帖子一</a>
+          <a class="author" href="/home/main?un=alice">alice</a>
+          <span class="reply">128回复</span>
+          <span class="time">3小时前</span>
+        </div>
+        <div class="feed-card">
+          <a class="thread-title" href="/p/1000000002">合成帖子二</a>
+          <a class="author" href="/home/main?un=bob">bob</a>
+          <span class="reply">1.2万回复</span>
+        </div>
+        ${'<div class="feed-card">初始填充</div>'.repeat(30)}
+      </div>
     </div>
-    <div class="feed-card">
-      <a class="thread-title" href="/p/1000000002">合成帖子二</a>
-      <a class="author" href="/home/main?un=bob">bob</a>
-      <span class="reply">1.2万回复</span>
+  </div>
+  <script>
+    (function () {
+      var page = 0;
+      var feed = document.getElementById('feed');
+      var items = document.getElementById('feed-items');
+      feed.addEventListener('scroll', function () {
+        if (feed.scrollTop + feed.clientHeight < feed.scrollHeight - 40) return;
+        if (page >= 2) return;
+        page += 1;
+        var card = document.createElement('div');
+        card.className = 'feed-card';
+        var link = document.createElement('a');
+        link.className = 'thread-title';
+        link.setAttribute('href', '/p/10000000' + String(2 + page));
+        link.textContent = '滚动加载帖子' + String(page);
+        card.appendChild(link);
+        items.appendChild(card);
+        for (var index = 0; index < 16; index += 1) {
+          var filler = document.createElement('div');
+          filler.className = 'feed-card';
+          filler.textContent = '追加填充 ' + String(page) + '-' + String(index);
+          items.appendChild(filler);
+        }
+      });
+    })();
+  </script>
+</body></html>`;
+
+const TIEBA_HOME_REFRESH_FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><title>百度贴吧</title></head><body>
+  <div class="pc-main-page-layout">
+    <div class="container styled-scrollbar deep" id="feed" style="height: 420px; overflow-y: auto;">
+      <div id="feed-items">
+        <div class="feed-card"><a class="thread-title" href="/p/2000000001">刷新后的帖子一</a></div>
+        <div class="feed-card"><a class="thread-title" href="/p/2000000002">刷新后的帖子二</a></div>
+        ${'<div class="feed-card">刷新填充</div>'.repeat(30)}
+      </div>
     </div>
   </div>
 </body></html>`;
@@ -44,7 +87,16 @@ const TIEBA_THREAD_FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><
       <div class="pb-title-wrap pc-pb-title"><span class="pb-title">合成帖子标题</span></div>
       <div class="pb-content-wrap">
         <div class="richtext-item"><span class="pb-text-wrapper">第一段正文</span></div>
-        <div class="image-card-wrapper"><img src="https://tiebapic.baidu.com/forum/pic/item/abc.jpg"></div>
+        <div class="richtext-item">
+          <div class="image-card-wrapper" origin-src="https://tiebapic.baidu.com/forum/original/big.jpg">
+            <div class="lazy-img-wrapper">
+              <img
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+                data-src="https://tiebapic.baidu.com/forum/pic/item/photo.jpg?tbpicau=1"
+              >
+            </div>
+          </div>
+        </div>
         <div class="richtext-item"><span class="pb-text-wrapper">第二段正文</span></div>
       </div>
       <div class="pc-pb-reply-top"><div class="card-tab"><span class="tab-item">全部回复 (2)</span></div></div>
@@ -137,6 +189,49 @@ try {
     'The Tieba runtime did not claim the home page.',
   );
 
+  // Scrolling the workbench list must pull more cards out of the native feed.
+  await page.evaluate(() => {
+    const scroller = document.querySelector('.docode-topic-list__scroll');
+    if (scroller instanceof HTMLElement) scroller.scrollTop = scroller.scrollHeight;
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-docode-workbench-root]')
+        ?.textContent?.includes('滚动加载帖子1') === true,
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  // Reloading must show the freshly served feed instead of the previous content.
+  await context.unroute('https://tieba.baidu.com/?menu=true');
+  await context.route('https://tieba.baidu.com/?menu=true', (route) =>
+    route.fulfill({
+      body: TIEBA_HOME_REFRESH_FIXTURE,
+      contentType: 'text/html; charset=utf-8',
+      status: 200,
+    }),
+  );
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator('[data-docode-workbench-root]').waitFor();
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector('[data-docode-workbench-root]')
+        ?.textContent?.includes('刷新后的帖子一') === true,
+    undefined,
+    { timeout: 20_000 },
+  );
+  const refreshedText = await workbenchText();
+  assert(
+    refreshedText.includes('刷新后的帖子二'),
+    'The reloaded feed did not render the newly fetched content.',
+  );
+  assert(
+    !refreshedText.includes('合成帖子一'),
+    'The reloaded feed kept stale content from the previous load.',
+  );
+
   await context.route('https://tieba.baidu.com/p/10754086366', (route) =>
     route.fulfill({
       body: TIEBA_THREAD_FIXTURE,
@@ -159,6 +254,31 @@ try {
   assert(threadText.includes('第二条回复'), 'The second reply body did not render.');
   const editorLines = await page.locator('[data-docode-editor-line]').count();
   assert(editorLines > 0, 'The thread document rendered no editor lines.');
+
+  // Images must stay collapsed into labelled hover previews.
+  const imageTrigger = page.locator('.docode-topic-code__image-trigger').first();
+  await imageTrigger.waitFor();
+  const triggerLabel = (await imageTrigger.innerText()).trim();
+  assert(
+    triggerLabel.startsWith('image: ') && triggerLabel.includes('photo.jpg'),
+    `Unexpected image trigger label: ${triggerLabel}`,
+  );
+  const sourceCollapsed = await page.evaluate(() => {
+    const source = document.querySelector('[data-docode-image-source]');
+    if (!(source instanceof HTMLElement)) return null;
+    const style = getComputedStyle(source);
+    return style.display === 'none' || source.getBoundingClientRect().height === 0;
+  });
+  assert.equal(sourceCollapsed, true, 'The full-size image must stay hidden until hover.');
+  await imageTrigger.hover();
+  await page.waitForFunction(
+    () => {
+      const preview = document.querySelector('[data-docode-image-preview]');
+      return preview instanceof HTMLElement && !preview.hidden;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
 
   await context.route('https://linux.do/latest?docode_verify=tieba_package', (route) =>
     route.fulfill({ body: LINUX_DO_FIXTURE, contentType: 'text/html', status: 200 }),
@@ -189,6 +309,9 @@ try {
       {
         editorLines,
         extensionId: installation.id,
+        feedReload: 'fresh-content',
+        feedScroll: 'loaded-more-threads',
+        images: 'hover-preview',
         linuxDo: 'runtime-mounted',
         tiebaHome: 'workbench-mounted',
         tiebaThread: 'workbench-mounted',

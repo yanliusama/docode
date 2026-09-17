@@ -1,13 +1,14 @@
 const DOCODE_OWNED_ROOT_SELECTOR = '[data-docode-workbench-root]';
-const TIEBA_APP_ROOT_SELECTOR = '#app';
 const THREAD_LINK_SELECTOR = 'a[href*="/p/"]';
-const THREAD_SURFACE_SELECTOR = '.pc-pb-box, .pc-pb-title, .pb-comment-item, .virtual-list-item';
+const THREAD_SURFACE_SELECTOR =
+  '.pc-pb-box, .pc-pb-title, .pb-comment-item, .virtual-list-item, .pc-main-page-layout';
 
 /**
  * Watches the client-rendered Tieba application for feed and thread mutations so
- * the workbench can re-extract once hydration, lazy loading, or the virtual
- * reply list has painted rows. Mirrors the Linux DO view-state observer but keys
- * off Tieba's thread links and thread surfaces.
+ * the workbench can re-extract once hydration, a reload, lazy loading, or the
+ * virtual lists have painted rows. Tieba replaces its own mount containers while
+ * booting, so the observer stays on the document body and filters mutations by
+ * Tieba content markers instead of binding to a container that may be discarded.
  */
 export class TiebaViewStateObserver {
   readonly #document: Document;
@@ -53,9 +54,7 @@ export class TiebaViewStateObserver {
   }
 
   #resolveRoot(): HTMLElement | null {
-    return (
-      this.#document.querySelector<HTMLElement>(TIEBA_APP_ROOT_SELECTOR) ?? this.#document.body
-    );
+    return this.#document.body;
   }
 
   readonly #onMutations = (mutations: readonly MutationRecord[]) => {

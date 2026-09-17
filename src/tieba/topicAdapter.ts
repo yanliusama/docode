@@ -13,7 +13,6 @@ import type {
 
 export const TIEBA_STAGING_ATTRIBUTE = 'data-docode-tieba-staging';
 
-const DOCODE_OWNED_ROOT_SELECTOR = '[data-docode-workbench-root]';
 const THREAD_BOX_SELECTOR = '.pc-pb-box';
 const THREAD_TITLE_SELECTOR = '.pc-pb-title .pb-title';
 const OP_CONTENT_SELECTOR = '.pb-content-wrap';
@@ -22,9 +21,8 @@ const REPLY_ITEM_SELECTOR = '.pb-comment-item[data-id]';
 const REPLY_CONTENT_SELECTOR = '.comment-content, .pb-rich-text';
 const REPLY_ROW_SELECTOR = '.virtual-list-item';
 const REPLY_CONTAINER_SELECTOR = '.thread-container';
-const MEDIA_CANDIDATE_SELECTOR = '.image-card-wrapper, .lazy-img-wrapper, figure, video';
-const TEXT_BLOCK_SELECTOR = [
-  '.richtext-item',
+const MEDIA_WRAPPER_SELECTOR = '.image-card-wrapper, .lazy-img-wrapper';
+const TEXT_BLOCK_SPLIT_SELECTOR = [
   '.pb-content-item',
   '.pb-text-wrapper',
   'blockquote',
@@ -40,7 +38,6 @@ const TEXT_BLOCK_SELECTOR = [
   'table',
 ].join(', ');
 const NOISE_SELECTOR = '.popover, .tooltip, .user-popover-mask, .avatar';
-const SECTION_SELECTOR = `${MEDIA_CANDIDATE_SELECTOR}, ${TEXT_BLOCK_SELECTOR}`;
 const AUTHOR_NAME_SELECTOR = '.head-name, .name-info-link';
 const AUTHOR_LINK_SELECTOR = 'a.name-info-link[href], a.avatar[href]';
 const AVATAR_SELECTOR = 'img.avatar-img';
@@ -269,20 +266,54 @@ function cacheContent(
 function buildContentMirror(document: Document, source: HTMLElement): CachedContent {
   const root = document.createElement('div');
   root.className = SYNTHETIC_ROOT_CLASS;
+  let paragraph: HTMLElement | null = null;
 
-  for (const section of collectSections(source)) {
-    if (section.kind === 'media') {
-      const figure = createMediaBlock(document, section.element);
-      if (figure) root.append(figure);
-      continue;
+  const flushParagraph = (): void => {
+    if (paragraph && normalizeText(paragraph.textContent).length > 0) root.append(paragraph);
+    paragraph = null;
+  };
+  const appendInline = (node: Node): void => {
+    paragraph ??= document.createElement('p');
+    appendInlineContent(document, paragraph, node);
+  };
+  const appendMedia = (element: HTMLElement): void => {
+    flushParagraph();
+    const figure = createMediaBlock(document, element);
+    if (figure) root.append(figure);
+  };
+  const visit = (node: Node): void => {
+    if (node.nodeType === TEXT_NODE_TYPE) {
+      appendInline(node);
+      return;
     }
-    const paragraph = createTextBlock(document, section.element);
-    if (paragraph) root.append(paragraph);
-  }
+    if (node.nodeType !== ELEMENT_NODE_TYPE) return;
+    const element = node as HTMLElement;
+    const tag = element.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'SVG') return;
+    if (element.matches(NOISE_SELECTOR)) return;
+    // Media wrappers become their own figure block wherever they appear, which
+    // keeps images out of the paragraph flow. The workbench then replaces each
+    // image with a labelled hover preview instead of showing it full size.
+    if (isMediaElement(element)) {
+      appendMedia(element);
+      return;
+    }
+    if (element.matches(TEXT_BLOCK_SPLIT_SELECTOR)) {
+      flushParagraph();
+      appendInline(element);
+      flushParagraph();
+      return;
+    }
+    for (const child of element.childNodes) visit(child);
+  };
+
+  for (const child of source.childNodes) visit(child);
+  flushParagraph();
+
   if (root.childElementCount === 0) {
-    const paragraph = document.createElement('p');
-    paragraph.textContent = normalizeText(source.textContent) || '…';
-    root.append(paragraph);
+    const paragraphFallback = document.createElement('p');
+    paragraphFallback.textContent = normalizeText(source.textContent) || '…';
+    root.append(paragraphFallback);
   }
 
   ensureStaging(document).append(root);
@@ -293,48 +324,14 @@ function buildContentMirror(document: Document, source: HTMLElement): CachedCont
   return { blocks, root };
 }
 
-function collectSections(
-  source: HTMLElement,
-): readonly { readonly element: HTMLElement; readonly kind: NativePostContentBlockKind }[] {
-  const candidates = [...source.querySelectorAll<HTMLElement>(SECTION_SELECTOR)].filter(
-    (candidate) => candidate.closest(DOCODE_OWNED_ROOT_SELECTOR) === null,
-  );
-
-  const sections = candidates.filter((candidate) => {
-    const ancestor = candidate.parentElement?.closest<HTMLElement>(SECTION_SELECTOR) ?? null;
-    return ancestor === null || !source.contains(ancestor);
-  });
-  if (sections.length > 0) {
-    return sections.map((element) => ({ element, kind: classifySourceSection(element) }));
-  }
-  return [{ element: source, kind: 'paragraph' }];
-}
-
-function classifySourceSection(element: HTMLElement): NativePostContentBlockKind {
-  if (element.matches(MEDIA_CANDIDATE_SELECTOR)) return 'media';
-  const hasMedia =
-    findMediaSource(element) !== null && normalizeText(element.textContent).length === 0;
-  if (hasMedia) return 'media';
-  return isTextBlockTag(element) ? 'paragraph' : 'other';
+function isMediaElement(element: HTMLElement): boolean {
+  if (element.tagName === 'FIGURE' || element.tagName === 'VIDEO') return true;
+  if (element.matches(MEDIA_WRAPPER_SELECTOR)) return findMediaSource(element) !== null;
+  return false;
 }
 
 function classifySyntheticBlock(element: Element): NativePostContentBlockKind {
   return element.tagName === 'FIGURE' ? 'media' : 'paragraph';
-}
-
-function isTextBlockTag(element: HTMLElement): boolean {
-  return element.tagName !== 'FIGURE' && element.tagName !== 'VIDEO';
-}
-
-function createTextBlock(document: Document, section: HTMLElement): HTMLElement | null {
-  const paragraph = document.createElement('p');
-  appendInlineContent(document, paragraph, section);
-  if (normalizeText(paragraph.textContent).length === 0) {
-    const media = findMediaSource(section);
-    if (!media) return null;
-    return createMediaBlock(document, section);
-  }
-  return paragraph;
 }
 
 function createMediaBlock(document: Document, section: HTMLElement): HTMLElement | null {
@@ -372,12 +369,9 @@ function appendInlineContent(document: Document, target: HTMLElement, node: Node
     return;
   }
   if (tag === 'IMG') {
-    const image = document.createElement('img');
-    const resolved = resolveImageUrl(
-      document,
-      element.getAttribute('src') ?? element.getAttribute('data-src') ?? '',
-    );
+    const resolved = resolveImageUrl(document, readMediaSource(element));
     if (!resolved) return;
+    const image = document.createElement('img');
     image.setAttribute('src', resolved);
     image.setAttribute('loading', 'eager');
     target.append(image);
@@ -386,7 +380,7 @@ function appendInlineContent(document: Document, target: HTMLElement, node: Node
   if (element.matches(NOISE_SELECTOR) || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'SVG') {
     return;
   }
-  if (element.matches(MEDIA_CANDIDATE_SELECTOR)) {
+  if (element.matches(MEDIA_WRAPPER_SELECTOR)) {
     const media = findMediaSource(element);
     if (media?.tagName === 'IMG') {
       appendInlineContent(document, target, media);
@@ -411,10 +405,37 @@ function appendInlineContent(document: Document, target: HTMLElement, node: Node
   for (const child of element.childNodes) appendInlineContent(document, target, child);
 }
 
-function readMediaSource(media: HTMLElement): string {
-  const src = media.getAttribute('src') ?? '';
-  if (src.length > 0) return src;
-  return media.getAttribute('data-src') ?? '';
+/**
+ * Tieba lazy-loads photos: `src` often holds a 1x1 `data:` placeholder while the
+ * real address lives in `data-src`, and the card wrapper keeps the original in
+ * `origin-src`. Only http(s) candidates are accepted, in fidelity order.
+ */
+function readMediaSource(element: HTMLElement): string {
+  const image =
+    element.tagName === 'IMG' ? element : element.querySelector<HTMLImageElement>('img');
+  const wrapper =
+    (element.matches(MEDIA_WRAPPER_SELECTOR) ? element : null) ??
+    element.closest<HTMLElement>(MEDIA_WRAPPER_SELECTOR) ??
+    image?.closest<HTMLElement>(MEDIA_WRAPPER_SELECTOR) ??
+    null;
+  const candidates = [
+    image?.getAttribute('data-src'),
+    image?.getAttribute('src'),
+    element.getAttribute('origin-src'),
+    wrapper?.getAttribute('origin-src'),
+    image?.getAttribute('origin-src'),
+  ];
+  for (const candidate of candidates) {
+    const value = candidate ?? '';
+    if (value.length === 0) continue;
+    try {
+      const url = new URL(value, element.ownerDocument.baseURI);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return '';
 }
 
 function findMediaSource(section: HTMLElement): HTMLElement | null {

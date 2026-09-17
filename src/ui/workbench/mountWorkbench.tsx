@@ -15,6 +15,7 @@ import {
 import { LinuxDoSearchAdapter, type LinuxDoSearchOutcome } from '../../linuxdo/searchAdapter';
 import { extractTiebaTopic } from '../../tieba/topicAdapter';
 import { loadMoreTiebaReplies } from '../../tieba/threadLoader';
+import { loadMoreTiebaThreads } from '../../tieba/threadListLoader';
 import type { TopicListRoute } from '../../views/topicList/topicListDocument';
 import { LinuxDoExplorerTopicLoader } from '../../linuxdo/explorerTopicLoader';
 import { LinuxDoBoostApiClient } from '../../linuxdo/boostApiClient';
@@ -335,14 +336,18 @@ export function mountWorkbench(
           : {
               onLoadCategories: (signal: AbortSignal) => taxonomyLoader.loadCategories(signal),
               onLoadExplorerTopics: loadExplorerTopics,
-              onLoadMoreTopics: (
-                route: TopicListRoute,
-                loadedTopicIds: ReadonlySet<number>,
-                signal: AbortSignal,
-              ) => topicListPaginator.loadNext(route, loadedTopicIds, signal),
               onLoadNotifications: (signal: AbortSignal) => notificationsLoader.load(signal),
               onLoadTags: (signal: AbortSignal) => taxonomyLoader.loadTags(signal),
             })}
+        onLoadMoreTopics={(
+          route: TopicListRoute,
+          loadedTopicIds: ReadonlySet<number>,
+          signal: AbortSignal,
+        ) =>
+          tiebaSite
+            ? loadMoreTiebaThreads(document, route, signal)
+            : topicListPaginator.loadNext(route, loadedTopicIds, signal)
+        }
         onLoadHistory={() => browseHistory.read()}
         onRecordHistory={(input, limit) => browseHistory.record(input, limit)}
         onRemoveHistoryEntry={(viewId) => browseHistory.remove(viewId)}

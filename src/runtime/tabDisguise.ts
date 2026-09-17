@@ -5,9 +5,11 @@ export const VSCODE_FAVICON_DATA_URI: string = vscodeFaviconPng;
 
 const DISGUISED_TITLE_SUFFIX = ' - docode - Visual Studio Code';
 const DEFAULT_FILE_NAME = 'LinuxDo';
+const TIEBA_FILE_NAME = 'Tieba';
 const FAVICON_LINK_SELECTOR = 'link[rel~="icon" i]';
 const NATIVE_UNREAD_PREFIX_PATTERN = /^\(\d+\)\s*/u;
 const NATIVE_SITE_SUFFIX_PATTERN = /\s*-\s*LINUX DO\s*$/iu;
+const NATIVE_TIEBA_SUFFIX_PATTERN = /\s*-\s*百度贴吧\s*$/u;
 
 export class TabDisguise {
   readonly #document: Document;
@@ -78,16 +80,23 @@ export class TabDisguise {
   }
 
   #disguisedTitle(): string {
-    const fileName = this.#route?.kind === 'topic' ? this.#topicFileName() : DEFAULT_FILE_NAME;
+    const fileName =
+      this.#route?.kind === 'topic' ? this.#topicFileName() : this.#defaultFileName();
     return `${fileName}.java${DISGUISED_TITLE_SUFFIX}`;
   }
 
+  #defaultFileName(): string {
+    return this.#route?.site === 'tieba' ? TIEBA_FILE_NAME : DEFAULT_FILE_NAME;
+  }
+
   #topicFileName(): string {
+    const fallback = this.#defaultFileName();
     const subject = this.#nativeTitle
       .replace(NATIVE_UNREAD_PREFIX_PATTERN, '')
       .replace(NATIVE_SITE_SUFFIX_PATTERN, '')
+      .replace(NATIVE_TIEBA_SUFFIX_PATTERN, '')
       .trim();
-    return subject === '' || /^LINUX DO$/iu.test(subject) ? DEFAULT_FILE_NAME : subject;
+    return subject === '' || /^(?:LINUX DO|百度贴吧)$/u.test(subject) ? fallback : subject;
   }
 
   #iconLinks(): readonly HTMLLinkElement[] {

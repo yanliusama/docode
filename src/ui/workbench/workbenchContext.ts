@@ -17,6 +17,30 @@ export function createWorkbenchViewContext(
 ): WorkbenchViewContext {
   const canonicalPath = `${route.pathname}${route.search}${route.hash}` || route.href;
 
+  if (route.site === 'tieba') {
+    if (route.kind === 'topic-list') {
+      return context(route, generation, 'tieba-home', 'Tieba home threads', 'home');
+    }
+    if (route.kind === 'topic') {
+      return context(
+        route,
+        generation,
+        `tieba-thread:${String(route.topicId)}`,
+        `Tieba thread ${String(route.topicId)}`,
+        'file',
+      );
+    }
+    return {
+      canonicalPath,
+      generation,
+      icon: 'warning',
+      label: 'unsupported',
+      route,
+      statusLabel: 'Unsupported Tieba route',
+      supported: false,
+    };
+  }
+
   if (route.kind === 'topic-list') {
     if (route.view === 'category') {
       const category = route.categorySlug ?? String(route.categoryId);

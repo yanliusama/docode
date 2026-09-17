@@ -88,7 +88,7 @@ export interface NativePostContentBlock {
 export interface NativePostContent {
   readonly blocks: readonly NativePostContentBlock[];
   readonly root: HTMLElement;
-  readonly source: 'linuxdo-owned-dom' | 'linuxdo-same-origin-json';
+  readonly source: 'linuxdo-owned-dom' | 'linuxdo-same-origin-json' | 'tieba-owned-dom';
 }
 
 export interface TopicPostAuthor {

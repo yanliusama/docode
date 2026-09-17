@@ -12,7 +12,10 @@ import {
   LinuxDoPostActionAdapter,
   type LinuxDoPostActionRequest,
 } from '../../linuxdo/postActionAdapter';
-import { LinuxDoSearchAdapter } from '../../linuxdo/searchAdapter';
+import { LinuxDoSearchAdapter, type LinuxDoSearchOutcome } from '../../linuxdo/searchAdapter';
+import { extractTiebaTopic } from '../../tieba/topicAdapter';
+import { loadMoreTiebaReplies } from '../../tieba/threadLoader';
+import type { TopicListRoute } from '../../views/topicList/topicListDocument';
 import { LinuxDoExplorerTopicLoader } from '../../linuxdo/explorerTopicLoader';
 import { LinuxDoBoostApiClient } from '../../linuxdo/boostApiClient';
 import { LinuxDoNotificationsLoader } from '../../linuxdo/notificationsLoader';
@@ -112,11 +115,23 @@ export function mountWorkbench(
   const removeSpaNavigation = installWorkbenchSpaNavigation(document, element);
   let root: Root | null = createRoot(element);
   const navigation = new WorkbenchNavigationCoordinator(initialRoute);
+  const tiebaSite = initialRoute.site === 'tieba';
   const commandNavigation = new LinuxDoNavigationAdapter(document, element, initialRoute);
   const composer = new LinuxDoComposerAdapter(document, initialRoute);
   const postActions = new LinuxDoPostActionAdapter(document, initialRoute);
   const likeStateOverrides = new Map<number, boolean>();
   const search = new LinuxDoSearchAdapter(document);
+  const searchForSite = (query: string, signal: AbortSignal): Promise<LinuxDoSearchOutcome> => {
+    if (!tiebaSite) return search.search(query, signal);
+    const unavailable: LinuxDoSearchOutcome = {
+      code: 'search-unavailable',
+      kind: 'error',
+      message: 'Search is available on Linux DO only.',
+      query,
+      retryable: false,
+    };
+    return Promise.resolve(unavailable);
+  };
   const explorerTopics = new LinuxDoExplorerTopicLoader(document);
   const notificationsLoader = new LinuxDoNotificationsLoader(document);
   const trustLevelLoader = new LinuxDoTrustLevelLoader(document);
@@ -189,6 +204,7 @@ export function mountWorkbench(
     return outcome;
   };
   const loadExplorerTopics = async (signal: AbortSignal) => {
+    if (tiebaSite) return null;
     const outcome = await explorerTopics.load(signal);
     return outcome.kind === 'ready' ? outcome.document : null;
   };
@@ -196,10 +212,12 @@ export function mountWorkbench(
     view: Parameters<LinuxDoExplorerTopicLoader['loadView']>[0],
     signal: AbortSignal,
   ) => {
+    if (tiebaSite) return null;
     const outcome = await explorerTopics.loadView(view, signal);
     return outcome.kind === 'ready' ? outcome.document : null;
   };
   const openComposer = async (request: LinuxDoComposerOpenRequest) => {
+    if (tiebaSite) return tiebaComposerFailure();
     const outcome = await composer.open(request);
     renderCurrent();
     if (outcome.kind !== 'failed') {
@@ -208,6 +226,7 @@ export function mountWorkbench(
     return outcome;
   };
   const submitReply = async (request: LinuxDoComposerSubmitRequest) => {
+    if (tiebaSite) return tiebaComposerFailure();
     const outcome = await composer.submit(request);
     renderCurrent();
     return outcome;
@@ -311,30 +330,34 @@ export function mountWorkbench(
         navigationState={current.viewState}
         onAppearanceChange={actions.onAppearanceChange}
         onCopyText={copyText}
-        onLoadExplorerTopics={loadExplorerTopics}
-        onLoadNotifications={(signal) => notificationsLoader.load(signal)}
-        onLoadCategories={(signal) => taxonomyLoader.loadCategories(signal)}
-        onLoadTags={(signal) => taxonomyLoader.loadTags(signal)}
+        {...(tiebaSite
+          ? {}
+          : {
+              onLoadCategories: (signal: AbortSignal) => taxonomyLoader.loadCategories(signal),
+              onLoadExplorerTopics: loadExplorerTopics,
+              onLoadMoreTopics: (
+                route: TopicListRoute,
+                loadedTopicIds: ReadonlySet<number>,
+                signal: AbortSignal,
+              ) => topicListPaginator.loadNext(route, loadedTopicIds, signal),
+              onLoadNotifications: (signal: AbortSignal) => notificationsLoader.load(signal),
+              onLoadTags: (signal: AbortSignal) => taxonomyLoader.loadTags(signal),
+            })}
         onLoadHistory={() => browseHistory.read()}
         onRecordHistory={(input, limit) => browseHistory.record(input, limit)}
         onRemoveHistoryEntry={(viewId) => browseHistory.remove(viewId)}
         onClearHistory={() => browseHistory.clear()}
         onLoadTopicList={loadTopicList}
-        onLoadMoreTopics={(route, loadedTopicIds, signal) =>
-          topicListPaginator.loadNext(route, loadedTopicIds, signal)
-        }
         onLoadEarlierPosts={async (route, loadedPostIds, signal) => {
+          if (tiebaSite) return { kind: 'unavailable' as const };
           const outcome = await topicPaginator.loadPrevious(route, loadedPostIds, signal);
           if (outcome.kind === 'ready' && outcome.loadedPostCount > 0) renderCurrent();
           return outcome;
         }}
         onLoadMorePosts={async (route, loadedPostIds, incompletePostIds, signal) => {
-          const outcome = await topicPaginator.loadNext(
-            route,
-            loadedPostIds,
-            incompletePostIds,
-            signal,
-          );
+          const outcome = tiebaSite
+            ? await loadMoreTiebaReplies(document, signal)
+            : await topicPaginator.loadNext(route, loadedPostIds, incompletePostIds, signal);
           if (outcome.kind === 'ready' && outcome.loadedPostCount > 0) renderCurrent();
           return outcome;
         }}
@@ -347,7 +370,7 @@ export function mountWorkbench(
         onOpenComposer={openComposer}
         onSubmitReply={submitReply}
         onRunPostAction={runPostAction}
-        onSearch={(query, signal) => search.search(query, signal)}
+        onSearch={searchForSite}
         onSidebarWidthChange={actions.onSidebarWidthChange}
         onRunTabAction={runTabAction}
         routeSource={current.lastSource}
@@ -366,7 +389,7 @@ export function mountWorkbench(
     return true;
   };
   const primeReplyTargets = (route: LinuxDoRoute): void => {
-    if (route.kind !== 'topic') {
+    if (tiebaSite || route.kind !== 'topic') {
       replyTargetController?.abort();
       replyTargetController = null;
       replyTargetTopicId = null;
@@ -411,7 +434,10 @@ export function mountWorkbench(
 
   return {
     element,
-    readTopic: (route) => extractTopic(document, route, { resolveNativeContent }),
+    readTopic: (route) =>
+      tiebaSite
+        ? extractTiebaTopic(document, route)
+        : extractTopic(document, route, { resolveNativeContent }),
     refresh: renderCurrent,
     unmount: () => {
       if (!root) return false;
@@ -455,4 +481,18 @@ export function mountWorkbench(
 
 function isSameTopicRoute(left: LinuxDoRoute, right: LinuxDoRoute): boolean {
   return left.kind === 'topic' && right.kind === 'topic' && left.topicId === right.topicId;
+}
+
+function tiebaComposerFailure(): {
+  readonly code: 'native-control-not-found';
+  readonly kind: 'failed';
+  readonly message: string;
+  readonly retryable: boolean;
+} {
+  return {
+    code: 'native-control-not-found',
+    kind: 'failed',
+    message: 'Replying is available on Linux DO only.',
+    retryable: false,
+  };
 }

@@ -5,6 +5,11 @@ interface RouteBase {
   readonly href: string;
   readonly pathname: string;
   readonly search: string;
+  /**
+   * Marks routes that were recognized on a supported upstream site other than
+   * Linux DO. Absent means the route belongs to Linux DO.
+   */
+  readonly site?: 'tieba';
 }
 
 export type TopicListView = 'category' | 'hot' | 'latest' | 'new' | 'tag' | 'top' | 'unread';

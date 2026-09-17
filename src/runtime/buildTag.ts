@@ -1,1 +1,1 @@
-export const DOCODE_BUILD_TAG = '0.0.5';
+export const DOCODE_BUILD_TAG = '0.0.7';

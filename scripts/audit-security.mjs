@@ -3,6 +3,8 @@ import { lstat, readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { toPosix } from './lib/zip-archive.mjs';
+
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const AUDIT_TARGETS = {
   chrome: {
@@ -18,6 +20,8 @@ const AUDIT_TARGETS = {
     outputDirectory: '.output/firefox-mv3',
   },
 };
+// The reviewed production site scope: Linux DO plus the Tieba home-page adapter.
+const REVIEWED_SITE_MATCHES = ['https://linux.do/*', 'https://tieba.baidu.com/*'];
 const targetName = process.argv[2] ?? 'chrome';
 const target = Object.hasOwn(AUDIT_TARGETS, targetName) ? AUDIT_TARGETS[targetName] : undefined;
 assert(target, `Unknown audit target: ${targetName}. Expected chrome or firefox.`);
@@ -54,7 +58,7 @@ if (targetName === 'firefox') {
     {
       gecko: {
         data_collection_permissions: { required: ['none'] },
-        id: 'docode@linux.do',
+        id: 'docode-tieba@linux.do',
         strict_min_version: '128.0',
       },
     },
@@ -76,7 +80,7 @@ assert.deepEqual(
   manifest.commands,
   {
     'toggle-docode': {
-      description: 'Toggle DOCode workbench on Linux DO',
+      description: 'Toggle DOCode workbench',
       suggested_key: { default: 'Alt+Shift+D', mac: 'MacCtrl+Shift+D' },
     },
   },
@@ -84,8 +88,8 @@ assert.deepEqual(
 );
 assert.deepEqual(
   manifest.web_accessible_resources,
-  [{ matches: ['https://linux.do/*'], resources: ['docode.webmanifest'] }],
-  'Only the reviewed static app manifest may be exposed, and only to Linux DO pages.',
+  [{ matches: [...REVIEWED_SITE_MATCHES], resources: ['docode.webmanifest'] }],
+  'Only the reviewed static app manifest may be exposed, and only to the reviewed site pages.',
 );
 assert.equal(
   manifest.content_scripts?.length,
@@ -95,13 +99,14 @@ assert.equal(
 for (const script of manifest.content_scripts) {
   assert.deepEqual(
     script.matches,
-    ['https://linux.do/*'],
-    'The production site scope must remain limited to Linux DO HTTPS pages.',
+    // The MAIN-world reply bridge stays confined to the Linux DO composer.
+    script.world === 'MAIN' ? ['https://linux.do/*'] : [...REVIEWED_SITE_MATCHES],
+    'The production site scope must remain limited to the reviewed Linux DO and Tieba HTTPS pages.',
   );
   assert.equal(
     script.run_at,
     'document_start',
-    'Content scripts must claim enabled-route presentation before Linux DO paints its loader.',
+    'Content scripts must claim enabled-route presentation before the site paints its loader.',
   );
 }
 const mainWorldScripts = manifest.content_scripts.filter(({ world }) => world === 'MAIN');
@@ -408,14 +413,14 @@ assert.match(
 );
 assert.match(
   windowFullscreenMessageSource,
-  /isLinuxDoUrl\(sender\.url\)/u,
-  'Window full-screen messages must validate the Linux DO sender URL.',
+  /isSupportedUrl\(sender\.url\)/u,
+  'Window full-screen messages must validate the supported-site sender URL.',
 );
 
 const packageFiles = await listFiles(outputRoot);
 assert(packageFiles.length > 0, 'The production output is empty.');
 for (const file of packageFiles) {
-  const relative = path.relative(outputRoot, file);
+  const relative = toPosix(path.relative(outputRoot, file));
   assert.doesNotMatch(
     relative,
     /(?:^|\/)(?:\.env|[^/]+\.(?:key|map|pem|ts|tsx))$/iu,
@@ -471,7 +476,7 @@ for (const file of styleFiles) {
 }
 
 console.log(
-  `Security audit passed (${target.label}): storage-only permission, Linux DO-only scope, reviewed window full-screen worker, ${String(sourceFiles.length)} runtime source files, ${String(packageFiles.length)} packaged files.`,
+  `Security audit passed (${target.label}): storage-only permission, reviewed Linux DO + Tieba scope, reviewed window full-screen worker, ${String(sourceFiles.length)} runtime source files, ${String(packageFiles.length)} packaged files.`,
 );
 
 async function assertPackageEntry(entry) {
@@ -485,7 +490,7 @@ async function assertPackageEntry(entry) {
 function matchingFiles(files, pattern) {
   return [...files]
     .filter(([, contents]) => pattern.test(contents))
-    .map(([file]) => path.relative(projectRoot, file))
+    .map(([file]) => toPosix(path.relative(projectRoot, file)))
     .sort();
 }
 

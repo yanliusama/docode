@@ -48,6 +48,8 @@ export function WorkbenchExplorer({
   const [routesExpanded, setRoutesExpanded] = useState(true);
   const [categoriesExpanded, setCategoriesExpanded] = useState(true);
   const routeFiles = getLinuxDoTopicListRouteFiles();
+  // Discourse list routes and categories have no Tieba backing APIs.
+  const linuxDoSite = context.route.site !== 'tieba';
 
   return (
     <aside className="docode-workbench__sidebar" aria-label="Primary Side Bar">
@@ -150,60 +152,64 @@ export function WorkbenchExplorer({
             </div>
           </ExplorerSection>
         ) : null}
-        <ExplorerSection
-          count={routeFiles.length}
-          expanded={routesExpanded}
-          label="Linux DO Lists"
-          onToggle={() => {
-            setRoutesExpanded((current) => !current);
-          }}
-        >
-          <div
-            aria-label="Linux DO list routes"
-            className="docode-workbench__explorer-list"
-            role="tree"
+        {linuxDoSite ? (
+          <ExplorerSection
+            count={routeFiles.length}
+            expanded={routesExpanded}
+            label="Linux DO Lists"
+            onToggle={() => {
+              setRoutesExpanded((current) => !current);
+            }}
           >
-            {routeFiles.map((file) => (
-              <ExplorerRouteFile
-                active={isActiveRouteFile(context.route, file)}
-                file={file}
-                key={file.label}
-                onNavigate={onNavigateRoute}
-              />
-            ))}
-          </div>
-        </ExplorerSection>
-        <ExplorerSection
-          count={categories?.length ?? 0}
-          expanded={categoriesExpanded}
-          label="Category Lists"
-          onToggle={() => {
-            setCategoriesExpanded((current) => !current);
-          }}
-        >
-          <div
-            aria-label="Linux DO categories"
-            className="docode-workbench__explorer-list"
-            role="tree"
+            <div
+              aria-label="Linux DO list routes"
+              className="docode-workbench__explorer-list"
+              role="tree"
+            >
+              {routeFiles.map((file) => (
+                <ExplorerRouteFile
+                  active={isActiveRouteFile(context.route, file)}
+                  file={file}
+                  key={file.label}
+                  onNavigate={onNavigateRoute}
+                />
+              ))}
+            </div>
+          </ExplorerSection>
+        ) : null}
+        {linuxDoSite ? (
+          <ExplorerSection
+            count={categories?.length ?? 0}
+            expanded={categoriesExpanded}
+            label="Category Lists"
+            onToggle={() => {
+              setCategoriesExpanded((current) => !current);
+            }}
           >
-            {(categories ?? []).map((category) => (
-              <ExplorerCategoryFile
-                active={isActiveCategory(context.route, category)}
-                category={category}
-                key={category.id}
-                onNavigate={onNavigateRoute}
-              />
-            ))}
-            {categories === null ? (
-              <p className="docode-workbench__explorer-empty">Loading Linux DO categories…</p>
-            ) : null}
-            {categories?.length === 0 ? (
-              <p className="docode-workbench__explorer-empty">
-                Linux DO categories are unavailable.
-              </p>
-            ) : null}
-          </div>
-        </ExplorerSection>
+            <div
+              aria-label="Linux DO categories"
+              className="docode-workbench__explorer-list"
+              role="tree"
+            >
+              {(categories ?? []).map((category) => (
+                <ExplorerCategoryFile
+                  active={isActiveCategory(context.route, category)}
+                  category={category}
+                  key={category.id}
+                  onNavigate={onNavigateRoute}
+                />
+              ))}
+              {categories === null ? (
+                <p className="docode-workbench__explorer-empty">Loading Linux DO categories…</p>
+              ) : null}
+              {categories?.length === 0 ? (
+                <p className="docode-workbench__explorer-empty">
+                  Linux DO categories are unavailable.
+                </p>
+              ) : null}
+            </div>
+          </ExplorerSection>
+        ) : null}
       </div>
     </aside>
   );

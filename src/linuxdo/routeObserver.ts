@@ -1,4 +1,5 @@
-import { recognizeLinuxDoRoute, type LinuxDoRoute } from './routes';
+import { recognizeSiteRoute } from '../site/routes';
+import { type LinuxDoRoute } from './routes';
 
 export type RouteChangeSource =
   'document' | 'hashchange' | 'initial' | 'link' | 'navigation' | 'popstate';
@@ -146,7 +147,7 @@ export class LinuxDoRouteObserver {
 
   #publish(source: RouteChangeSource, forceRepeated = false): boolean {
     if (!this.#started) return false;
-    const current = recognizeLinuxDoRoute(this.#window.location.href);
+    const current = recognizeSiteRoute(this.#window.location.href);
     const previous = this.#current;
     const repeated = previous?.href === current.href;
     if (repeated && !forceRepeated) return false;

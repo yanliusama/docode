@@ -1,6 +1,6 @@
 {
   "name": "docode",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "private": true,
   "description": "Your forum, now with a minimap.",
   "license": "MIT",
@@ -27,6 +27,8 @@
     "verify:package:firefox": "node scripts/verify-firefox-package.mjs",
     "verify:content-context": "node scripts/verify-content-context-recovery.mjs",
     "verify:extension": "node scripts/verify-extension.mjs",
+    "verify:tieba": "node scripts/verify-tieba-package.mjs",
+    "debug:tieba": "node scripts/debug-tieba-live.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run build:firefox && npm run audit:security && npm run audit:security:firefox"
   },
   "dependencies": {

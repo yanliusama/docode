@@ -26,6 +26,7 @@ import {
   installWorkbenchKeybindings,
 } from '../../keybindings/keybindingCoordinator';
 import { installVimNavigation } from '../../keybindings/vimNavigation';
+import { isTiebaUrl } from '../../linuxdo/host';
 import type { TrustLevelLoadOutcome } from '../../linuxdo/trustLevelLoader';
 import { TrustLevelPanel, type TrustLevelPanelState } from '../../views/trust/TrustLevelPanel';
 import type { LinuxDoNavigationOutcome } from '../../linuxdo/navigationAdapter';
@@ -764,7 +765,11 @@ export function WorkbenchShell({
   const navigateTopicFromList = useCallback(
     (line: TopicListDocumentLine) => {
       const route = recognizeLinuxDoRoute(line.url);
-      if (route.kind !== 'topic') return;
+      if (route.kind !== 'topic') {
+        // Tieba thread pages are full-page navigations outside the workbench router.
+        if (isTiebaUrl(line.url)) window.location.assign(line.url);
+        return;
+      }
       if (readyTopicList) {
         setLoadedExplorerTopicDocument(readyTopicList);
       }

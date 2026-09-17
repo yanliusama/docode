@@ -1,6 +1,6 @@
 import type { Browser } from '@wxt-dev/browser';
 
-import { isLinuxDoUrl } from '../linuxdo/host';
+import { isSupportedUrl } from '../linuxdo/host';
 import {
   isWindowFullscreenRequest,
   type WindowFullscreenResponse,
@@ -83,8 +83,8 @@ export function createWindowFullscreenMessageController(
 export function isTrustedLinuxDoSender(sender: Browser.runtime.MessageSender): boolean {
   if (sender.frameId !== undefined && sender.frameId !== 0) return false;
   return (
-    (typeof sender.url === 'string' && isLinuxDoUrl(sender.url)) ||
-    sender.origin === 'https://linux.do'
+    (typeof sender.url === 'string' && isSupportedUrl(sender.url)) ||
+    (typeof sender.origin === 'string' && isSupportedUrl(sender.origin))
   );
 }
 

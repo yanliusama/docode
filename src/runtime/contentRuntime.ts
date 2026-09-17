@@ -1,4 +1,4 @@
-import { isLinuxDoLocation } from '../linuxdo/host';
+import { isSupportedLocation, isTiebaLocation } from '../linuxdo/host';
 import {
   detectLinuxDoCapabilities,
   LinuxDoCapabilityObserver,
@@ -9,7 +9,6 @@ import {
 import { LinuxDoRouteObserver, type LinuxDoRouteSubscriber } from '../linuxdo/routeObserver';
 import {
   getLinuxDoRouteFamily,
-  recognizeLinuxDoRoute,
   type LinuxDoRoute,
   type LinuxDoRouteFamily,
 } from '../linuxdo/routes';
@@ -26,6 +25,10 @@ import {
   type TopicStatusSummary,
 } from '../linuxdo/topicAdapter';
 import { LinuxDoViewStateObserver } from '../linuxdo/viewStateObserver';
+import { recognizeSiteRoute } from '../site/routes';
+import { extractTiebaThreadList } from '../tieba/threadListAdapter';
+import { disposeTiebaTopicStaging } from '../tieba/topicAdapter';
+import { TiebaViewStateObserver } from '../tieba/viewStateObserver';
 import { startAppManifestDisguise, stopAppManifestDisguise } from './appManifestDisguise';
 import { CleanupRegistry, type Cleanup } from './cleanupRegistry';
 import { GenerationClock } from './generationClock';
@@ -77,6 +80,7 @@ export class ContentRuntime {
   readonly #presentation: NativePresentation;
   readonly #routeObserver: LinuxDoRouteObserver | null;
   readonly #tabDisguise: TabDisguise;
+  readonly #tiebaViewStateObserver: TiebaViewStateObserver | null;
   readonly #viewStateObserver: LinuxDoViewStateObserver;
   readonly #workbench: MountedWorkbench | null;
   #mounted = true;
@@ -118,8 +122,10 @@ export class ContentRuntime {
     this.#cleanups.add(() => {
       this.#presentation.restore();
     });
-    this.#workbench = isLinuxDoLocation(document.location)
-      ? mountWorkbench(document, this.#markerToken, recognizeLinuxDoRoute(document.location.href), {
+    const supportedSite = isSupportedLocation(document.location);
+    const initialRoute = recognizeSiteRoute(document.location.href);
+    this.#workbench = supportedSite
+      ? mountWorkbench(document, this.#markerToken, initialRoute, {
           initialAppearance: workbenchPreferences.initialAppearance,
           initialSidebarWidth: workbenchPreferences.initialSidebarWidth,
           onAppearanceChange: workbenchPreferences.persistAppearance,
@@ -140,11 +146,22 @@ export class ContentRuntime {
     this.#cleanups.add(() => {
       this.#viewStateObserver.stop();
     });
+    this.#tiebaViewStateObserver = isTiebaLocation(document.location)
+      ? new TiebaViewStateObserver(document, () => {
+          this.#scheduleWorkbenchRefresh();
+        })
+      : null;
+    this.#tiebaViewStateObserver?.start();
+    this.#cleanups.add(() => {
+      this.#tiebaViewStateObserver?.stop();
+      disposeTiebaTopicStaging(document);
+    });
     const settleWindow = document.defaultView;
     if (settleWindow) {
       for (const delay of [1_000, 3_000, 8_000]) {
         const timer = settleWindow.setTimeout(() => {
           this.#capabilityObserver.start();
+          this.#tiebaViewStateObserver?.refresh();
           this.#scheduleWorkbenchRefresh();
         }, delay);
         this.#cleanups.add(() => {
@@ -156,6 +173,7 @@ export class ContentRuntime {
       const startObserversWhenReady = () => {
         this.#capabilityObserver.start();
         this.#viewStateObserver.start();
+        this.#tiebaViewStateObserver?.refresh();
         this.#scheduleWorkbenchRefresh();
       };
       document.addEventListener('DOMContentLoaded', startObserversWhenReady, { once: true });
@@ -163,10 +181,7 @@ export class ContentRuntime {
         document.removeEventListener('DOMContentLoaded', startObserversWhenReady);
       });
     }
-    this.#tabDisguise = new TabDisguise(
-      document,
-      isLinuxDoLocation(document.location) ? recognizeLinuxDoRoute(document.location.href) : null,
-    );
+    this.#tabDisguise = new TabDisguise(document, supportedSite ? initialRoute : null);
     this.#tabDisguise.start();
     this.#cleanups.add(() => {
       this.#tabDisguise.stop();
@@ -215,7 +230,10 @@ export class ContentRuntime {
 
   get topicList(): TopicListExtraction | null {
     const route = this.currentRoute;
-    return route?.kind === 'topic-list' ? extractTopicList(this.document, route) : null;
+    if (route?.kind !== 'topic-list') return null;
+    return route.site === 'tieba'
+      ? extractTiebaThreadList(this.document)
+      : extractTopicList(this.document, route);
   }
 
   get topic(): TopicExtraction | null {
@@ -287,7 +305,7 @@ export class ContentRuntime {
 }
 
 export async function bootstrapContentRuntime(options: BootstrapOptions): Promise<BootstrapResult> {
-  if (!isLinuxDoLocation(options.location)) return { status: 'unsupported-host' };
+  if (!isSupportedLocation(options.location)) return { status: 'unsupported-host' };
 
   const activeRuntime = activeRuntimes.get(options.document);
   if (activeRuntime?.isMounted) return { status: 'already-mounted', runtime: activeRuntime };

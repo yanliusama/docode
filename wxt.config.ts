@@ -1,13 +1,15 @@
 import { defineConfig } from 'wxt';
 
-const GECKO_EXTENSION_ID = 'docode@linux.do';
+import { LINUX_DO_MATCH_PATTERN, TIEBA_MATCH_PATTERN } from './src/linuxdo/host';
+
+const GECKO_EXTENSION_ID = 'docode-tieba@linux.do';
 const GECKO_MINIMUM_VERSION = '128.0';
 
 export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: ({ browser }) => ({
-    name: 'DOCode',
-    description: "Do not try Ctrl+S here, it's not effective.",
+    name: 'DOCode Tieba',
+    description: "Do not try Ctrl+S here, it's not effective. Tieba edition.",
     permissions: ['storage'],
     icons: {
       16: 'icon/16.png',
@@ -22,17 +24,17 @@ export default defineConfig({
         32: 'icon/32.png',
         48: 'icon/48.png',
       },
-      default_title: 'DOCode',
+      default_title: 'DOCode Tieba',
     },
     web_accessible_resources: [
       {
-        matches: ['https://linux.do/*'],
+        matches: [LINUX_DO_MATCH_PATTERN, TIEBA_MATCH_PATTERN],
         resources: ['docode.webmanifest'],
       },
     ],
     commands: {
       'toggle-docode': {
-        description: 'Toggle DOCode workbench on Linux DO',
+        description: 'Toggle DOCode workbench',
         suggested_key: {
           default: 'Alt+Shift+D',
           mac: 'MacCtrl+Shift+D',

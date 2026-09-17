@@ -1,7 +1,7 @@
 import { browser, type Browser } from '@wxt-dev/browser';
 import { defineContentScript } from 'wxt/utils/define-content-script';
 
-import { LINUX_DO_MATCH_PATTERN } from '../src/linuxdo/host';
+import { LINUX_DO_MATCH_PATTERN, TIEBA_MATCH_PATTERN } from '../src/linuxdo/host';
 import { createContentMessageHandler } from '../src/messaging/contentMessages';
 import {
   configureAppManifestDisguise,
@@ -12,7 +12,7 @@ import { ContentController } from '../src/runtime/contentController';
 import { disableContentRuntime } from '../src/runtime/contentRuntime';
 
 export default defineContentScript({
-  matches: [LINUX_DO_MATCH_PATTERN],
+  matches: [LINUX_DO_MATCH_PATTERN, TIEBA_MATCH_PATTERN],
   runAt: 'document_start',
   async main(context) {
     configureAppManifestDisguise(browser.runtime.getURL('/docode.webmanifest'));
